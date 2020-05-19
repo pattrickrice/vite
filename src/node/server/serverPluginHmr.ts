@@ -113,15 +113,10 @@ export const hmrPlugin: ServerPlugin = ({
 
   // start a websocket server to send hmr notifications to the client
   const wss = new WebSocket.Server({ server })
-  const sockets = new Set<WebSocket>()
 
   wss.on('connection', (socket) => {
     debugHmr('ws client connected')
-    sockets.add(socket)
     socket.send(JSON.stringify({ type: 'connected' }))
-    socket.on('close', () => {
-      sockets.delete(socket)
-    })
   })
 
   wss.on('error', (e: Error & { code: string }) => {
@@ -134,7 +129,12 @@ export const hmrPlugin: ServerPlugin = ({
   const send = (payload: HMRPayload) => {
     const stringified = JSON.stringify(payload, null, 2)
     debugHmr(`update: ${stringified}`)
-    sockets.forEach((s) => s.send(stringified))
+
+    wss.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(stringified)
+      }
+    })
   }
 
   watcher.handleVueReload = handleVueReload
@@ -158,7 +158,6 @@ export const hmrPlugin: ServerPlugin = ({
     } else if (file.endsWith('.vue')) {
       handleVueReload(file, timestamp)
     } else if (
-      file.endsWith('.module.css') ||
       !(file.endsWith('.css') || cssTransforms.some((t) => t.test(file, {})))
     ) {
       // everything except plain .css are considered HMR dependencies.
@@ -316,26 +315,26 @@ export const hmrPlugin: ServerPlugin = ({
         })
         console.log(chalk.green(`[vite] `) + `page reloaded.`)
       } else {
-        vueBoundaries.forEach((vueImporter) => {
+        vueBoundaries.forEach((vueBoundary) => {
           console.log(
             chalk.green(`[vite:hmr] `) +
-              `${vueImporter} reloaded due to change in ${relativeFile}.`
+              `${vueBoundary} reloaded due to change in ${relativeFile}.`
           )
           send({
             type: 'vue-reload',
-            path: vueImporter,
+            path: vueBoundary,
             changeSrcPath: publicPath,
             timestamp
           })
         })
-        jsBoundaries.forEach((jsImporter) => {
+        jsBoundaries.forEach((jsBoundary) => {
           console.log(
             chalk.green(`[vite:hmr] `) +
-              `${jsImporter} updated due to change in ${relativeFile}.`
+              `${jsBoundary} updated due to change in ${relativeFile}.`
           )
           send({
             type: 'js-update',
-            path: jsImporter,
+            path: jsBoundary,
             changeSrcPath: publicPath,
             timestamp
           })
